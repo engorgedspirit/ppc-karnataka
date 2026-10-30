@@ -1,0 +1,27 @@
+# Deploys the site to Firebase Hosting (https://ppc-karnataka.web.app) on every push to main.
+# Needs repo secret FIREBASE_SERVICE_ACCOUNT: the JSON key from Firebase → Project settings → Service accounts.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ppc-karnataka
+          channelId: live
