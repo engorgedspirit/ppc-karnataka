@@ -1,7 +1,8 @@
 /* PPC Karnataka — Philately Passport map and stamp tracker.
  * Static data: data/sites.json (booklet 1-100 + unconfirmed extras).
- * Progress: Firestore document users/{uid} when signed in (Firebase Auth), otherwise this browser only. */
-import { firebaseConfig } from './firebase-config.js';
+ * Progress: Firestore document users/{uid} when signed in (Firebase Auth), otherwise this browser only.
+ * firebase-config.js is generated at deploy time from a GitHub secret; without it the site runs local-only. */
+const { firebaseConfig = {} } = await import('./firebase-config.js').catch(() => ({}));
 
 // ---------- helpers ----------
 const $ = (s, el = document) => el.querySelector(s);

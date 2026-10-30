@@ -1,0 +1,42 @@
+# Deploys the site to GitHub Pages. firebase-config.js is not in the repo: it is generated here
+# from the FIREBASE_CONFIG repository secret (the web config JSON from Firebase project settings).
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write firebase-config.js from secret
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: |
+          test -n "$FIREBASE_CONFIG" || { echo "::error::FIREBASE_CONFIG secret is not set"; exit 1; }
+          printf '%s' "$FIREBASE_CONFIG" | python3 -c "import json,sys; print('export const firebaseConfig = ' + json.dumps(json.load(sys.stdin)) + ';')" > firebase-config.js
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
