@@ -1,7 +1,7 @@
 /* PPC Karnataka — Philately Passport map and stamp tracker.
- * Static data: data/sites.json (booklet 1-100 + unconfirmed extras). Your stamps: data/progress.csv in the GitHub repo,
- * written through the GitHub Contents API with a token kept only in this browser. */
-'use strict';
+ * Static data: data/sites.json (booklet 1-100 + unconfirmed extras).
+ * Progress: Firestore document users/{uid} when signed in (Firebase Auth), otherwise this browser only. */
+import { firebaseConfig } from './firebase-config.js';
 
 // ---------- helpers ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -10,20 +10,19 @@ const ls = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } },
 };
-const toast = msg => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); };
+const toast = msg => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); };
 const today = () => new Date().toISOString().slice(0, 10);
 
 // ---------- state ----------
 let SITES = [];
-let progress = {};   // siteId -> {stamped, date, page, notes}
+let progress = {};   // siteId -> {stamped, date, notes}
+let user = null;     // Firebase user when signed in
 let view = ls.get('ppc.view', { hideStamped: false, showExtras: false, q: '' });
-let local = ls.get('ppc.local', { gh: { owner: '', repo: '', branch: 'main', token: '' } });
-const saveLocal = () => ls.set('ppc.local', local);
 const saveView = () => ls.set('ppc.view', view);
 const isDone = s => !!progress[s.id]?.stamped;
 const visible = s => (s.kind === 'passport' || view.showExtras) && !(view.hideStamped && isDone(s));
 
-// ---------- CSV ----------
+// ---------- CSV (export / import) ----------
 function csvParse(text) {
   const rows = []; let row = [], f = '', q = false;
   for (let i = 0; i < text.length; i++) {
@@ -40,66 +39,72 @@ function csvParse(text) {
 }
 const csvCell = v => /[",\n\r]/.test(v = String(v ?? '')) ? `"${v.replace(/"/g, '""')}"` : v;
 function progressToCsv() {
-  const lines = ['id,no,site,stamped,date,booklet_page,notes'];
+  const lines = ['id,no,site,post_office,pin,stamped,date,notes'];
   for (const s of SITES) {
-    const p = progress[s.id]; if (!p || (!p.stamped && !p.date && !p.page && !p.notes)) continue;
-    lines.push([s.id, s.num ?? '', s.name, p.stamped ? 'Y' : 'N', p.date || '', p.page || '', p.notes || ''].map(csvCell).join(','));
+    const p = progress[s.id]; if (!p || (!p.stamped && !p.notes)) continue;
+    lines.push([s.id, s.num ?? '', s.name, s.po, s.pin, p.stamped ? 'Y' : 'N', p.date || '', p.notes || ''].map(csvCell).join(','));
   }
   return lines.join('\n') + '\n';
 }
 function csvToProgress(text) {
   const out = {};
-  for (const r of csvParse(text)) out[r.id] = { stamped: r.stamped === 'Y', date: r.date, page: r.booklet_page, notes: r.notes };
+  for (const r of csvParse(text)) if (r.id) out[r.id] = { stamped: r.stamped === 'Y', date: r.date || '', notes: r.notes || '' };
   return out;
 }
 
-// ---------- GitHub sync ----------
-const PATH = 'data/progress.csv';
-const sync = { sha: null, remote: null, dirty: ls.get('ppc.dirty', false), timer: null };
-const ghReady = () => local.gh.owner && local.gh.repo && local.gh.token;
-const ghUrl = () => `https://api.github.com/repos/${local.gh.owner}/${local.gh.repo}/contents/${PATH}`;
-const ghHeaders = () => ({ Authorization: `Bearer ${local.gh.token}`, Accept: 'application/vnd.github+json' });
-const b64enc = s => btoa(unescape(encodeURIComponent(s)));
-const b64dec = s => decodeURIComponent(escape(atob(s.replace(/\n/g, ''))));
-async function ghGet() {
-  const r = await fetch(`${ghUrl()}?ref=${encodeURIComponent(local.gh.branch || 'main')}&t=${Date.now()}`, { headers: ghHeaders(), cache: 'no-store' });
-  if (r.status === 404) { sync.sha = null; return null; }
-  if (!r.ok) throw new Error(`GitHub ${r.status}`);
-  const j = await r.json(); sync.sha = j.sha; return b64dec(j.content);
-}
-async function ghPut(content, msg) {
-  const put = () => fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify({ message: msg, content: b64enc(content), branch: local.gh.branch || 'main', ...(sync.sha && { sha: sync.sha }) }) });
-  let r = await put();
-  if (r.status === 409 || r.status === 422) { await ghGet(); r = await put(); }  // stale sha: refetch once, last write wins
-  if (!r.ok) throw new Error(`GitHub ${r.status}`);
-  sync.sha = (await r.json()).content.sha; sync.remote = content;
-}
+// ---------- storage: Firestore when signed in, localStorage otherwise ----------
+const cloud = { ready: false, fb: null, auth: null, db: null, unsub: null };
+const hasConfig = !!firebaseConfig.apiKey;
 function setSync(cls, text) { const p = $('#sync-pill'); p.className = cls; p.textContent = text; }
-function persist(reason) {
-  ls.set('ppc.progress', progress); sync.dirty = true; ls.set('ppc.dirty', true);
-  if (!ghReady()) { setSync('local', 'Saved on this device'); return; }
-  setSync('pending', 'Saving…'); clearTimeout(sync.timer); sync.timer = setTimeout(() => pushNow(reason), 1500);
+
+async function initFirebase() {
+  if (!hasConfig) { setSync('local', 'Local only'); return; }
+  const V = '10.12.2', base = `https://www.gstatic.com/firebasejs/${V}`;
+  const [appM, authM, fsM] = await Promise.all([import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`), import(`${base}/firebase-firestore.js`)]);
+  const app = appM.initializeApp(firebaseConfig);
+  cloud.fb = { ...authM, ...fsM };
+  cloud.auth = authM.getAuth(app);
+  // Offline cache: ticks made without signal are queued and sent when back online.
+  cloud.db = fsM.initializeFirestore(app, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) });
+  cloud.ready = true;
+  authM.onAuthStateChanged(cloud.auth, onUser);
 }
-async function pushNow(reason = 'update') {
-  if (!ghReady() || !navigator.onLine) { setSync('pending', navigator.onLine ? 'Not synced' : 'Offline – will sync'); return; }
-  try {
-    const csv = progressToCsv();
-    if (csv !== sync.remote) await ghPut(csv, `stamps: ${reason}`);
-    sync.dirty = false; ls.set('ppc.dirty', false); setSync('ok', 'Synced ✓');
-  } catch (e) { setSync('err', 'Sync failed'); console.error(e); }
+async function onUser(u) {
+  const F = cloud.fb;
+  cloud.unsub?.(); cloud.unsub = null; user = u;
+  renderAccount();
+  if (!u) { progress = ls.get('ppc.progress', {}); setSync('local', 'Not signed in'); refreshAll(); return; }
+  const ref = F.doc(cloud.db, 'users', u.uid);
+  // First sign-in on this device: carry over anything ticked while signed out.
+  const local = ls.get('ppc.progress', {});
+  if (Object.keys(local).length) {
+    try {
+      const snap = await F.getDoc(ref);
+      const remote = snap.exists() ? snap.data().progress || {} : {};
+      const merged = { ...local, ...remote };
+      await F.setDoc(ref, { progress: merged, name: u.displayName || u.email || '', updated: F.serverTimestamp() }, { merge: true });
+      ls.set('ppc.progress', {});
+      toast(`Moved ${Object.keys(local).length} ticks from this device to your account`);
+    } catch (e) { console.error(e); }
+  }
+  cloud.unsub = F.onSnapshot(ref, { includeMetadataChanges: true }, snap => {
+    progress = snap.exists() ? snap.data().progress || {} : {};
+    setSync(snap.metadata.hasPendingWrites ? 'pending' : 'ok', snap.metadata.hasPendingWrites ? 'Saving…' : snap.metadata.fromCache ? 'Offline copy' : 'Synced ✓');
+    refreshAll();
+  }, e => { console.error(e); setSync('err', 'Sync error'); });
 }
-async function pull() {
-  // Remote is the source of truth unless this device has unsynced edits.
-  try {
-    let csv;
-    if (ghReady()) csv = await ghGet();
-    else { const r = await fetch(PATH, { cache: 'no-store' }); csv = r.ok ? await r.text() : null; }
-    sync.remote = csv;
-    if (sync.dirty) { if (ghReady()) await pushNow('sync offline edits'); else setSync('local', 'Saved on this device'); return; }
-    if (csv != null) progress = csvToProgress(csv);
-    ls.set('ppc.progress', progress);
-    setSync(ghReady() ? 'ok' : 'local', ghReady() ? 'Synced ✓' : 'Read-only (add token)');
-  } catch (e) { setSync('err', 'Offline copy'); console.error(e); }
+function saveEntry(id) {
+  if (user && cloud.ready) {
+    const F = cloud.fb;
+    F.setDoc(F.doc(cloud.db, 'users', user.uid), { progress: { [id]: progress[id] }, name: user.displayName || user.email || '', updated: F.serverTimestamp() }, { merge: true })
+      .catch(e => { console.error(e); setSync('err', 'Save failed'); });
+  } else ls.set('ppc.progress', progress);
+}
+async function saveAll() {
+  if (user && cloud.ready) {
+    const F = cloud.fb;
+    await F.setDoc(F.doc(cloud.db, 'users', user.uid), { progress, name: user.displayName || user.email || '', updated: F.serverTimestamp() });
+  } else ls.set('ppc.progress', progress);
 }
 
 // ---------- map ----------
@@ -118,7 +123,6 @@ function initMap() {
       .bindPopup(() => popupHtml(s), { maxWidth: 320 })
       .bindTooltip(`${s.num ? '#' + s.num + ' ' : ''}${s.name}`, { direction: 'top', offset: [0, -12] });
   }
-  refreshMarkers();
 }
 function refreshMarkers() {
   for (const s of SITES) {
@@ -156,11 +160,10 @@ function flyTo(id) {
 
 // ---------- stamping ----------
 function setStamped(id, on) {
-  const p = progress[id] || (progress[id] = {});
+  const p = { ...(progress[id] || {}) };
   p.stamped = on; if (on && !p.date) p.date = today();
-  const s = SITES.find(x => x.id === id);
-  persist(`${on ? 'stamped' : 'unstamped'} ${s.num ? '#' + s.num + ' ' : ''}${s.name}`);
-  refreshMarkers(); renderProgress(); renderList();
+  progress[id] = p; saveEntry(id);
+  refreshAll();
   if (on && view.hideStamped) map.closePopup();
 }
 function renderProgress() {
@@ -191,46 +194,75 @@ function renderList() {
   }).join('') || '<p class="muted">Nothing to show with these filters.</p>';
 }
 
-// ---------- settings ----------
-function renderSettings() {
-  const g = local.gh;
-  $('#tab-settings').innerHTML = `
-    <h3>GitHub sync</h3>
-    <p class="muted small">Stamps are saved to <code>data/progress.csv</code> in your repo (one commit per change). The token stays in this browser only.</p>
-    <div class="row"><div><label>Owner</label><input data-g="owner" value="${esc(g.owner)}"></div><div><label>Repo</label><input data-g="repo" value="${esc(g.repo)}"></div><div style="flex:.6"><label>Branch</label><input data-g="branch" value="${esc(g.branch)}"></div></div>
-    <label>Fine-grained token (Contents: read &amp; write, this repo only)</label><input type="password" data-g="token" value="${esc(g.token)}" placeholder="github_pat_…">
-    <div class="row" style="margin-top:8px"><button class="btn primary" id="gh-sync">Sync now</button><button class="btn" id="exp">Export backup</button><button class="btn" id="imp">Import</button></div>
-    <input type="file" id="imp-file" accept=".csv" hidden>
-    <h3>Legend</h3>
-    <p class="small"><span class="pin todo inline">7</span> pending &nbsp; <span class="pin done inline">7</span> stamped &nbsp; <span class="pin extra inline">•</span> not in booklet (unconfirmed)</p>
-    <h3>About the data</h3>
-    <p class="muted small">Sites 1–100 follow the Karnataka Philately Passport booklet. Post offices were checked against the India Post pincode directory (2017 copy); seal designs and dates come from indianphilatelics.com and indianphilately.net where published. Extras are from the community site philatelypassport.in and are not in the booklet. Pin positions are geocoded with OpenStreetMap, so some are approximate.</p>`;
-  const el = $('#tab-settings');
-  el.querySelectorAll('[data-g]').forEach(i => i.addEventListener('change', () => { local.gh[i.dataset.g] = i.value.trim(); saveLocal(); }));
-  $('#gh-sync').onclick = async () => { saveLocal(); setSync('pending', 'Syncing…'); await pull(); refreshAll(); };
+// ---------- account ----------
+function renderAccount() {
+  const btn = $('#account-btn');
+  btn.textContent = user ? (user.displayName || user.email || 'Account').split(' ')[0] : 'Sign in';
+  const el = $('#tab-account');
+  if (!hasConfig) {
+    el.innerHTML = `<p class="muted">Accounts aren't set up yet, so ticks are saved in this browser only.</p>${backupHtml()}`;
+  } else if (!cloud.ready) {
+    el.innerHTML = `<p class="muted">Connecting…</p>${backupHtml()}`;
+  } else if (user) {
+    el.innerHTML = `<h3>Signed in</h3><p><b>${esc(user.displayName || '')}</b> <span class="muted">${esc(user.email || '')}</span></p>
+      <p class="muted small">Your stamps are saved to your account and appear on every device you sign in on. Ticks made offline are sent when you're back online.</p>
+      <button class="btn" id="sign-out">Sign out</button>${backupHtml()}`;
+    $('#sign-out').onclick = () => cloud.fb.signOut(cloud.auth);
+  } else {
+    el.innerHTML = `<h3>Sign in to save your progress</h3>
+      <p class="muted small">Each person gets their own progress. Anything you tick before signing in is moved into your account.</p>
+      <button class="btn primary wide" id="g-in">Continue with Google</button>
+      <div class="or">or with email</div>
+      <label>Email</label><input type="email" id="em" autocomplete="email">
+      <label>Password</label><input type="password" id="pw" autocomplete="current-password">
+      <div class="row" style="margin-top:8px"><button class="btn primary" id="e-in">Sign in</button><button class="btn" id="e-up">Create account</button></div>
+      <p class="small"><a href="#" id="e-reset">Forgot password?</a></p>${backupHtml()}`;
+    const F = cloud.fb, A = cloud.auth, em = () => $('#em').value.trim(), pw = () => $('#pw').value;
+    const run = p => p.catch(e => toast(authMsg(e)));
+    $('#g-in').onclick = () => run(F.signInWithPopup(A, new F.GoogleAuthProvider()));
+    $('#e-in').onclick = () => run(F.signInWithEmailAndPassword(A, em(), pw()));
+    $('#e-up').onclick = () => run(F.createUserWithEmailAndPassword(A, em(), pw()));
+    $('#e-reset').onclick = e => { e.preventDefault(); if (!em()) return toast('Enter your email first'); run(F.sendPasswordResetEmail(A, em()).then(() => toast('Reset email sent'))); };
+  }
+  bindBackup();
+}
+function authMsg(e) {
+  const m = { 'auth/invalid-credential': 'Wrong email or password', 'auth/email-already-in-use': 'That email already has an account – sign in instead',
+    'auth/weak-password': 'Password needs at least 6 characters', 'auth/invalid-email': 'That email address looks wrong',
+    'auth/popup-closed-by-user': 'Sign-in window was closed', 'auth/unauthorized-domain': 'This site address is not authorised in Firebase yet' };
+  return m[e.code] || e.message;
+}
+const backupHtml = () => `<h3>Backup</h3><div class="row"><button class="btn" id="exp">Export CSV</button><button class="btn" id="imp">Import CSV</button></div><input type="file" id="imp-file" accept=".csv" hidden>
+  <h3>Legend</h3><p class="small"><span class="pin todo inline">7</span> pending &nbsp; <span class="pin done inline">7</span> stamped &nbsp; <span class="pin extra inline">•</span> not in booklet (unconfirmed)</p>
+  <h3>About the data</h3><p class="muted small">Sites 1–100 follow the Karnataka Philately Passport booklet. Post offices were checked against the India Post pincode directory (2017 copy); seal designs and dates come from indianphilatelics.com and indianphilately.net where published. Extras are from the community site philatelypassport.in and are not in the booklet. Pin positions are geocoded with OpenStreetMap, so some are approximate.</p>`;
+function bindBackup() {
   $('#exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([progressToCsv()], { type: 'text/csv' })); a.download = `ppc-progress-${today()}.csv`; a.click(); };
   $('#imp').onclick = () => $('#imp-file').click();
-  $('#imp-file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { progress = csvToProgress(await f.text()); persist('import backup'); refreshAll(); toast('Imported'); } catch { toast('Not a valid progress file'); } };
+  $('#imp-file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const imported = csvToProgress(await f.text()); if (!confirm(`Replace your progress with ${Object.keys(imported).length} rows from this file?`)) return; progress = imported; await saveAll(); refreshAll(); toast('Imported'); }
+    catch (err) { console.error(err); toast('Could not import that file'); }
+  };
 }
 
 // ---------- events ----------
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset?.stamp) setStamped(t.dataset.stamp, t.checked);
-  const upd = (attr, field) => { const id = t.getAttribute(attr); if (id) { (progress[id] ||= {})[field] = t.value; persist(`edit ${field}`); } };
-  upd('data-pdate', 'date'); upd('data-pnotes', 'notes');
+  for (const [attr, field] of [['data-pdate', 'date'], ['data-pnotes', 'notes']]) {
+    const id = t.getAttribute(attr); if (id) { progress[id] = { ...(progress[id] || {}), [field]: t.value }; saveEntry(id); }
+  }
 });
 document.addEventListener('click', e => { const id = e.target.dataset?.fly; if (id) flyTo(id); });
 $('#f-hide').addEventListener('change', e => { view.hideStamped = e.target.checked; saveView(); refreshMarkers(); renderList(); });
 $('#f-extra').addEventListener('change', e => { view.showExtras = e.target.checked; saveView(); refreshMarkers(); renderList(); });
 $('#q').addEventListener('input', e => { view.q = e.target.value; saveView(); renderList(); });
+$('#account-btn').addEventListener('click', () => showTab('account'));
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 function showTab(name) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('active', s.id === `tab-${name}`));
-  if (name === 'settings') renderSettings();
 }
-window.addEventListener('online', () => sync.dirty && pushNow('sync offline edits'));
 function refreshAll() { refreshMarkers(); renderProgress(); renderFilters(); renderList(); }
 
 // ---------- boot ----------
@@ -238,6 +270,6 @@ function refreshAll() { refreshMarkers(); renderProgress(); renderFilters(); ren
   SITES = await (await fetch('data/sites.json', { cache: 'no-store' })).json();
   progress = ls.get('ppc.progress', {});
   $('#q').value = view.q || '';
-  initMap(); refreshAll(); setSync('local', 'Loading…');
-  await pull(); refreshAll();
+  initMap(); refreshAll(); renderAccount();
+  try { await initFirebase(); } catch (e) { console.error(e); setSync('err', 'Offline – local only'); }
 })();

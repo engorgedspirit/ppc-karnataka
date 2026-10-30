@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PPC Karnataka Passport</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div id="app">
@@ -14,6 +14,7 @@
     <header>
       <div class="brand">📮 Karnataka Philately Passport</div>
       <div id="sync-pill"></div>
+      <button class="btn small" id="account-btn">Sign in</button>
     </header>
     <div class="progress"><div id="progress-bar"></div></div>
     <div class="filters">
@@ -23,18 +24,18 @@
     </div>
     <nav class="tabs">
       <button data-tab="list" class="active">Sites</button>
-      <button data-tab="settings">Settings</button>
+      <button data-tab="account">Account</button>
     </nav>
     <section id="tab-list" class="tab active">
       <input id="q" placeholder="Search number, site, post office, district, PIN">
       <div class="muted small" id="list-count" style="margin:6px 0"></div>
       <div id="list"></div>
     </section>
-    <section id="tab-settings" class="tab"></section>
+    <section id="tab-account" class="tab"></section>
   </aside>
 </div>
 <div id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
-<script src="app.js?v=3"></script>
+<script type="module" src="app.js?v=4"></script>
 </body>
 </html>

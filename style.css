@@ -74,3 +74,6 @@ button.btn.primary { background: var(--accent); border-color: var(--accent); col
   #map { flex: none; height: 50vh; }
   #panel { width: 100%; flex: 1; min-height: 0; border-left: 0; border-top: 1px solid var(--line); }
 }
+button.btn.small { padding: 3px 9px; font-size: 12px; }
+button.btn.wide { width: 100%; padding: 10px; }
+.or { text-align: center; color: var(--muted); font-size: 12px; margin: 12px 0 4px; }
