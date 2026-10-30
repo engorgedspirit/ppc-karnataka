@@ -2,40 +2,98 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PPC Karnataka Passport</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#26306B">
+<title>Karnataka Philately Passport</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%23C1272D' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23C1272D'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
-<div id="app">
-  <div id="map"></div>
-  <aside id="panel">
-    <header>
-      <div class="brand">📮 Karnataka Philately Passport</div>
-      <div id="sync-pill"></div>
-      <button class="btn small" id="account-btn">Sign in</button>
-    </header>
-    <div class="progress"><div id="progress-bar"></div></div>
-    <div class="filters">
-      <span id="progress-pill"></span>
-      <label class="toggle"><input type="checkbox" id="f-hide"> Hide stamped (pending only)</label>
-      <label class="toggle"><input type="checkbox" id="f-extra"> Show extras not in booklet (<span id="f-extra-count"></span>)</label>
+<div id="map" aria-label="Map of PPC sites"></div>
+
+<header class="bar">
+  <button class="icon-btn" id="menu-btn" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <span class="sync-dot" id="sync-dot"></span>
+  </button>
+  <div class="bar-title">
+    <b>Karnataka Philately Passport</b>
+    <span id="count">0 of 100 stamped</span>
+  </div>
+  <svg class="ring" viewBox="0 0 36 36" aria-hidden="true">
+    <circle cx="18" cy="18" r="15" class="ring-bg"/>
+    <circle cx="18" cy="18" r="15" class="ring-fg" id="ring-fg" pathLength="100" stroke-dasharray="0 100"/>
+  </svg>
+</header>
+
+<button class="map-btn" id="locate" aria-label="Show my location" title="Show my location">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+</button>
+
+<aside class="sheet" id="sheet" data-view="list" data-size="half" aria-label="Sites">
+  <button class="grab" id="grab" aria-label="Resize panel"><span></span></button>
+
+  <section class="view view-list">
+    <div class="sheet-head">
+      <h2>Sites</h2>
+      <button class="icon-btn" id="collapse" aria-label="Hide list" title="Hide list">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
     </div>
-    <nav class="tabs">
-      <button data-tab="list" class="active">Sites</button>
-      <button data-tab="account">Account</button>
-    </nav>
-    <section id="tab-list" class="tab active">
-      <input id="q" placeholder="Search number, site, post office, district, PIN">
-      <div class="muted small" id="list-count" style="margin:6px 0"></div>
-      <div id="list"></div>
-    </section>
-    <section id="tab-account" class="tab"></section>
-  </aside>
-</div>
-<div id="toast"></div>
+    <div class="seg" role="radiogroup" aria-label="Show">
+      <button role="radio" data-show="all">All</button>
+      <button role="radio" data-show="pending">Pending</button>
+      <button role="radio" data-show="stamped">Stamped</button>
+    </div>
+    <div class="search-row">
+      <input id="q" type="search" placeholder="Search name, post office, PIN" autocomplete="off">
+      <button class="chip" id="sort" aria-pressed="false" title="Sort by distance from you">Nearest</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="f-extra"> Show unconfirmed extras <span class="muted" id="f-extra-count"></span></label>
+    <div class="list" id="list"></div>
+  </section>
+
+  <section class="view view-detail" id="detail" aria-live="polite"></section>
+</aside>
+
+<button class="pill" id="sheet-open" aria-controls="sheet">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+  <span id="pill-text">Sites</span>
+</button>
+
+<div class="scrim" id="scrim" hidden></div>
+<nav class="drawer" id="drawer" aria-label="Menu" aria-hidden="true">
+  <div class="drawer-head">
+    <b>Menu</b>
+    <button class="icon-btn" id="drawer-close" aria-label="Close menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div id="account"></div>
+  <div class="drawer-section">
+    <h3>Map key</h3>
+    <div class="legend">
+      <span><i class="pin todo">7</i> Not stamped yet</span>
+      <span><i class="pin done">7</i> Stamped</span>
+      <span><i class="pin extra"></i> Not in the booklet (unconfirmed)</span>
+    </div>
+  </div>
+  <div class="drawer-section">
+    <h3>Backup</h3>
+    <p class="muted small">Download your stamps as a spreadsheet, or load them back from one.</p>
+    <div class="btn-row"><button class="btn" id="exp">Download CSV</button><button class="btn" id="imp">Load CSV</button></div>
+    <input type="file" id="imp-file" accept=".csv" hidden>
+  </div>
+  <div class="drawer-section">
+    <h3>About the data</h3>
+    <p class="muted small">Sites 1–100 follow the Karnataka Philately Passport booklet. Post offices are checked against the India Post pincode directory; seal designs and dates come from published PPC catalogues where available. Extras come from a community list and are not in the booklet. Some pin positions are approximate.</p>
+  </div>
+</nav>
+
+<div class="toast" id="toast" role="status"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
-<script type="module" src="app.js?v=6"></script>
+<script type="module" src="app.js?v=7"></script>
 </body>
 </html>
