@@ -139,6 +139,13 @@ function initMap() {
   map = L.map('map', { zoomControl: false, attributionControl: true }).setView([14.6, 76.2], 7);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
   if (!isPhone()) L.control.zoom({ position: 'bottomleft' }).addTo(map);
+  // Each entry is its own post office: if two ever share coordinates, fan them out (~40 m) so both dots stay visible.
+  const spots = {};
+  for (const s of SITES) if (s.lat != null) (spots[`${s.lat.toFixed(4)},${s.lon.toFixed(4)}`] ||= []).push(s);
+  for (const group of Object.values(spots)) if (group.length > 1) group.forEach((s, i) => {
+    const a = (2 * Math.PI * i) / group.length;
+    s.lat += 0.00036 * Math.cos(a); s.lon += 0.00036 * Math.sin(a);
+  });
   for (const s of SITES) {
     if (s.lat == null) continue;
     markers[s.id] = L.marker([s.lat, s.lon], { icon: icon(s), riseOnHover: true, keyboard: true, title: `${s.num ? s.num + '. ' : ''}${s.name}` })
@@ -186,7 +193,7 @@ function renderList() {
   const row = s => `<div class="item${selected === s.id ? ' sel' : ''}" data-open="${s.id}" role="button" tabindex="0">
       <i class="pin ${pinClass(s)}">${s.num ?? ''}</i>
       <div><div class="name">${esc(s.name)}</div><div class="sub">${esc(s.po)}, ${esc(s.district)}${isDone(s) ? ` · stamped ${esc(prettyDate(progress[s.id].date))}` : ''}</div></div>
-      ${near && isFinite(s._d) ? `<span class="dist">${s._d < 10 ? s._d.toFixed(1) : Math.round(s._d)} km</span>` : '<span></span>'}
+      ${near && isFinite(s._d) ? `<span class="dist">${fmtKm(s._d)}</span>` : '<span></span>'}
     </div>`;
   let html;
   if (near) html = list.map(row).join('');
@@ -241,6 +248,7 @@ function renderDetail() {
       <div class="detail-title">
         <h2>${esc(s.name)}</h2>
         <div class="muted">${esc(s.district)} district${s.num ? ` · booklet no. ${s.num}` : ''}</div>
+        ${distTo(s) != null ? `<span class="tag">${fmtKm(distTo(s))} from you</span>` : ''}
         ${s.kind === 'extra' ? '<span class="tag">Not in the booklet – unconfirmed</span>' : ''}
       </div>
       <button class="stamp-btn${done ? ' done' : ''}" data-act="stamp">${ICON.stamp}${done ? `Stamped on ${esc(prettyDate(p.date))}` : 'Mark as stamped'}</button>
@@ -331,16 +339,46 @@ function openDrawer() { $('#drawer').classList.add('open'); $('#drawer').setAttr
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true'); $('#scrim').hidden = true; $('#menu-btn').setAttribute('aria-expanded', 'false'); }
 
 // ---------- location ----------
-function locate(then) {
+// Live position: blue dot + accuracy circle, kept up to date while the page is open.
+let watchId = null, meCircle = null, firstFixWaiters = [];
+const distTo = s => me && s.lat != null ? hav(me, [s.lat, s.lon]) : null;
+const fmtKm = d => d < 1 ? `${Math.round(d * 1000)} m` : d < 10 ? `${d.toFixed(1)} km` : `${Math.round(d)} km`;
+function startTracking(onFix) {
   if (!navigator.geolocation) return toast('Location is not available in this browser');
-  navigator.geolocation.getCurrentPosition(pos => {
+  if (onFix) firstFixWaiters.push(onFix);
+  if (watchId != null) { if (me) firstFixWaiters.splice(0).forEach(f => f()); return; }
+  $('#locate').classList.add('busy');
+  watchId = navigator.geolocation.watchPosition(pos => {
+    const first = !me;
     me = [pos.coords.latitude, pos.coords.longitude];
-    if (!meMarker) meMarker = L.marker(me, { icon: L.divIcon({ className: '', iconSize: [16, 16], html: '<div class="me-dot"></div>' }), interactive: false, zIndexOffset: 3000 }).addTo(map);
-    else meMarker.setLatLng(me);
-    $('#locate').classList.add('active');
-    then?.();
-  }, () => toast('Allow location access to use this'), { enableHighAccuracy: true, timeout: 10000 });
+    const acc = Math.min(pos.coords.accuracy || 0, 2000);
+    if (!meMarker) {
+      meCircle = L.circle(me, { radius: acc, className: 'me-acc', interactive: false }).addTo(map);
+      meMarker = L.marker(me, { icon: L.divIcon({ className: '', iconSize: [18, 18], html: '<div class="me-dot"></div>' }), interactive: false, zIndexOffset: 3000 }).addTo(map);
+    } else { meMarker.setLatLng(me); meCircle.setLatLng(me).setRadius(acc); }
+    $('#locate').classList.remove('busy'); $('#locate').classList.add('active');
+    if (first) { renderList(); if (selected) renderDetail(); }
+    firstFixWaiters.splice(0).forEach(f => f());
+  }, err => {
+    $('#locate').classList.remove('busy');
+    navigator.geolocation.clearWatch(watchId); watchId = null; firstFixWaiters = [];
+    toast(err.code === 1 ? 'Location is blocked. Allow it for this site in your browser settings.' : 'Could not find your location. Try again outdoors.');
+  }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
 }
+// "Near me": show where you are with the closest pending sites around you, and sort the list by distance.
+function nearMe() {
+  startTracking(() => {
+    const pending = SITES.filter(s => s.kind === 'passport' && !isDone(s) && s.lat != null)
+      .sort((a, b) => distTo(a) - distTo(b)).slice(0, 4);
+    const pts = [me, ...pending.map(s => [s.lat, s.lon])];
+    map.flyToBounds(pts, { paddingTopLeft: [40, 90], paddingBottomRight: isPhone() ? [40, innerHeight * .55] : [420, 40], maxZoom: 13, duration: .8 });
+    view.sort = 'near'; saveView();
+    if (selected) backToList();
+    openSheet(); refreshAll();
+    if (pending[0]) toast(`Closest pending: ${pending[0].num}. ${pending[0].name}, ${fmtKm(distTo(pending[0]))} away`);
+  });
+}
+
 
 // ---------- events ----------
 document.addEventListener('click', e => {
@@ -364,9 +402,9 @@ $('#f-extra').addEventListener('change', e => { view.showExtras = e.target.check
 $('#q').addEventListener('input', e => { view.q = e.target.value; renderList(); });
 $('#sort').addEventListener('click', () => {
   if (view.sort === 'near') { view.sort = 'num'; saveView(); refreshAll(); return; }
-  locate(() => { view.sort = 'near'; saveView(); refreshAll(); });
+  startTracking(() => { view.sort = 'near'; saveView(); refreshAll(); });
 });
-$('#locate').addEventListener('click', () => locate(() => map.flyTo(me, Math.max(map.getZoom(), 10))));
+$('#locate').addEventListener('click', nearMe);
 $('#collapse').addEventListener('click', closeSheet);
 $('#sheet-open').addEventListener('click', () => { openSheet(); });
 $('#grab').addEventListener('click', () => { const s = sheet().dataset.size; setSize(s === 'peek' ? 'half' : s === 'half' ? 'full' : 'peek'); });
@@ -403,5 +441,7 @@ function refreshAll() { refreshMarkers(); renderCounts(); renderList(); if (sele
   BY_ID = Object.fromEntries(SITES.map(s => [s.id, s]));
   progress = ls.get('ppc.progress', {});
   initMap(); refreshAll(); renderAccount();
+  // Resume the location dot automatically if this site was already allowed to use location.
+  navigator.permissions?.query({ name: 'geolocation' }).then(p => { if (p.state === 'granted') startTracking(); }).catch(() => {});
   try { await initFirebase(); } catch (e) { console.error(e); setSync('err', 'Offline – saved on this device'); }
 })();

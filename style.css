@@ -66,10 +66,13 @@ svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; 
 .sync-dot { position: absolute; top: 8px; right: 7px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--paper); background: var(--extra); }
 .sync-dot.ok { background: var(--ok); } .sync-dot.pending { background: var(--warn); } .sync-dot.err { background: var(--red); }
 
-.map-btn { position: fixed; z-index: 900; left: 10px; bottom: 104px; width: 44px; height: 44px; border-radius: 12px; border: 0;
-  background: var(--paper); box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer; }
-.map-btn svg { width: 22px; height: 22px; }
-.map-btn.active { color: var(--ink); }
+.map-btn { position: fixed; z-index: 900; left: 10px; bottom: 104px; height: 44px; padding: 0 14px 0 11px; border-radius: 12px; border: 0;
+  background: var(--paper); box-shadow: var(--shadow); display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 650; font-size: 14px; }
+.map-btn svg { width: 21px; height: 21px; }
+.map-btn.active svg { color: #1a73e8; }
+.map-btn.busy svg { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.me-acc { fill: #1a73e8; fill-opacity: .12; stroke: #1a73e8; stroke-opacity: .35; stroke-width: 1; }
 
 /* ---------- pins (postmark style) ---------- */
 .pin { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A perforated postage stamp in India Post red, cancelled with an indigo postmark -->
+  <defs>
+    <mask id="perf">
+      <rect width="64" height="64" fill="#fff"/>
+      <g fill="#000">
+        <circle cx="4" cy="12" r="3"/><circle cx="4" cy="22" r="3"/><circle cx="4" cy="32" r="3"/><circle cx="4" cy="42" r="3"/><circle cx="4" cy="52" r="3"/>
+        <circle cx="60" cy="12" r="3"/><circle cx="60" cy="22" r="3"/><circle cx="60" cy="32" r="3"/><circle cx="60" cy="42" r="3"/><circle cx="60" cy="52" r="3"/>
+        <circle cx="12" cy="4" r="3"/><circle cx="22" cy="4" r="3"/><circle cx="32" cy="4" r="3"/><circle cx="42" cy="4" r="3"/><circle cx="52" cy="4" r="3"/>
+        <circle cx="12" cy="60" r="3"/><circle cx="22" cy="60" r="3"/><circle cx="32" cy="60" r="3"/><circle cx="42" cy="60" r="3"/><circle cx="52" cy="60" r="3"/>
+      </g>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" fill="#C1272D" mask="url(#perf)"/>
+  <rect x="12" y="12" width="40" height="40" rx="2" fill="#FBF7F2"/>
+  <g fill="none" stroke="#26306B" stroke-linecap="round">
+    <circle cx="28" cy="32" r="13" stroke-width="3.5"/>
+    <path d="M38 25c3-2.5 6-2.5 9 0s6 2.5 9 0M38 32c3-2.5 6-2.5 9 0s6 2.5 9 0M38 39c3-2.5 6-2.5 9 0s6 2.5 9 0" stroke-width="3"/>
+  </g>
+  <circle cx="28" cy="32" r="4" fill="#C1272D"/>
+</svg>
