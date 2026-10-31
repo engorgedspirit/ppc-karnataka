@@ -35,11 +35,10 @@ let progress = {};   // siteId -> {stamped, date, notes}
 let user = null;     // Firebase user when signed in
 let selected = null; // siteId shown in the detail view
 let me = null;       // [lat, lon] once location is shared
-let view = { show: 'all', showExtras: false, q: '', sort: 'num', ...ls.get('ppc.view2', {}) };
-const saveView = () => ls.set('ppc.view2', { show: view.show, showExtras: view.showExtras, sort: view.sort });
+let view = { hideStamped: false, showExtras: false, q: '', sort: 'num', ...ls.get('ppc.view3', {}) };
+const saveView = () => ls.set('ppc.view3', { hideStamped: view.hideStamped, showExtras: view.showExtras, sort: view.sort });
 const isDone = s => !!progress[s.id]?.stamped;
-const visible = s => (s.kind === 'passport' || view.showExtras) &&
-  (view.show === 'all' || (view.show === 'stamped') === isDone(s));
+const visible = s => (s.kind === 'passport' || view.showExtras) && !(view.hideStamped && isDone(s));
 
 // ---------- CSV (backup) ----------
 function csvParse(text) {
@@ -181,7 +180,8 @@ function renderCounts() {
   $('#ring-fg').setAttribute('stroke-dasharray', `${(n / pass.length) * 100} 100`);
   $('#pill-text').textContent = `Sites · ${pass.length - n} to go`;
   $('#f-extra-count').textContent = `(${SITES.filter(s => s.kind === 'extra').length})`;
-  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.show === view.show)));
+  $('#f-hide').checked = view.hideStamped;
+  $('#peek-count').textContent = `· ${pass.length - n} to go`;
   $('#f-extra').checked = view.showExtras;
   $('#sort').setAttribute('aria-pressed', String(view.sort === 'near' && !!me));
 }
@@ -201,8 +201,7 @@ function renderList() {
     const pass = list.filter(s => s.kind === 'passport'), ext = list.filter(s => s.kind === 'extra');
     html = pass.map(row).join('') + (ext.length ? `<div class="group-label">Not in the booklet (unconfirmed)</div>` + ext.map(row).join('') : '');
   }
-  const empty = view.show === 'stamped' ? 'No stamps yet. Open a site and tap “Mark as stamped” after your visit.'
-    : view.show === 'pending' ? 'Every site is stamped. Well done!' : 'No sites match your search.';
+  const empty = view.hideStamped ? 'Every site is stamped. Well done!' : 'No sites to show.';
   $('#list').innerHTML = html || `<p class="list-empty">${q ? 'No sites match your search.' : empty}</p>`;
 }
 
@@ -243,7 +242,7 @@ function renderDetail() {
         <button class="icon-btn" data-goto="${next?.id || ''}" ${next ? '' : 'disabled'} aria-label="Next site">${ICON.next}</button>
       </div>` : ''}
     </div>
-    <div class="seal-wrap">${sealSvg(s)}</div>
+    <div class="seal-wrap">${s.seal_img ? `<img class="seal-photo${done ? ' done' : ''}" id="seal" src="${esc(s.seal_img)}" alt="Seal for ${esc(s.name)}">` : sealSvg(s)}</div>
     <div class="detail-body">
       <div class="detail-title">
         <h2>${esc(s.name)}</h2>
@@ -382,10 +381,9 @@ function nearMe() {
 
 // ---------- events ----------
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-open],[data-act],[data-goto],[data-show]'); if (!t) return;
+  const t = e.target.closest('[data-open],[data-act],[data-goto]'); if (!t) return;
   if (t.dataset.open) openDetail(t.dataset.open);
   else if (t.dataset.goto) openDetail(t.dataset.goto);
-  else if (t.dataset.show) { view.show = t.dataset.show; saveView(); refreshAll(); }
   else if (t.dataset.act === 'back') backToList();
   else if (t.dataset.act === 'stamp') setStamped(selected, !isDone(BY_ID[selected]));
 });
@@ -399,13 +397,25 @@ document.addEventListener('change', e => {
   if (f === 'date') renderDetail();
 });
 $('#f-extra').addEventListener('change', e => { view.showExtras = e.target.checked; saveView(); refreshAll(); });
+$('#f-hide').addEventListener('change', e => { view.hideStamped = e.target.checked; saveView(); refreshAll(); });
 $('#q').addEventListener('input', e => { view.q = e.target.value; renderList(); });
 $('#sort').addEventListener('click', () => {
   if (view.sort === 'near') { view.sort = 'num'; saveView(); refreshAll(); return; }
   startTracking(() => { view.sort = 'near'; saveView(); refreshAll(); });
 });
 $('#locate').addEventListener('click', nearMe);
-$('#collapse').addEventListener('click', closeSheet);
+$('#collapse').addEventListener('click', e => { e.stopPropagation(); if (isPhone() && sheet().dataset.size === 'peek') setSize('half'); else closeSheet(); });
+// Phone: tapping the minimised bar brings the panel back
+$('#sheet').addEventListener('click', e => { if (isPhone() && sheet().dataset.size === 'peek' && !e.target.closest('#grab')) setSize('half'); });
+// Theme: system / light / dark, remembered on this device
+const applyTheme = t => {
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#171B26' : '#FFFFFF';
+};
+const theme = ls.get('ppc.theme', 'system');
+document.querySelectorAll('input[name="theme"]').forEach(r => { r.checked = r.value === theme; r.addEventListener('change', () => { ls.set('ppc.theme', r.value); applyTheme(r.value); }); });
+applyTheme(theme);
 $('#sheet-open').addEventListener('click', () => { openSheet(); });
 $('#grab').addEventListener('click', () => { const s = sheet().dataset.size; setSize(s === 'peek' ? 'half' : s === 'half' ? 'full' : 'peek'); });
 $('#menu-btn').addEventListener('click', openDrawer);

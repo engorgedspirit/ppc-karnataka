@@ -3,16 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#26306B">
+<meta name="theme-color" content="#FFFFFF">
 <title>Karnataka Philately Passport</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
+<script>try{var t=JSON.parse(localStorage.getItem("ppc.theme"));if(t&&t!=="system")document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <div id="map" aria-label="Map of PPC sites"></div>
@@ -42,21 +43,19 @@
 
   <section class="view view-list">
     <div class="sheet-head">
-      <h2>Sites</h2>
+      <h2>Sites <span class="peek-count" id="peek-count"></span></h2>
       <button class="icon-btn" id="collapse" aria-label="Hide list" title="Hide list">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>
-    </div>
-    <div class="seg" role="radiogroup" aria-label="Show">
-      <button role="radio" data-show="all">All</button>
-      <button role="radio" data-show="pending">Pending</button>
-      <button role="radio" data-show="stamped">Stamped</button>
     </div>
     <div class="search-row">
       <input id="q" type="search" placeholder="Search name, post office, PIN" autocomplete="off">
       <button class="chip" id="sort" aria-pressed="false" title="Sort by distance from you">Nearest</button>
     </div>
-    <label class="toggle"><input type="checkbox" id="f-extra"> Show unconfirmed extras <span class="muted" id="f-extra-count"></span></label>
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="f-hide"> Hide stamped (pending only)</label>
+      <label class="toggle"><input type="checkbox" id="f-extra"> Show unconfirmed extras <span class="muted" id="f-extra-count"></span></label>
+    </div>
     <div class="list" id="list"></div>
   </section>
 
@@ -76,10 +75,18 @@
   </div>
   <div id="account"></div>
   <div class="drawer-section">
+    <h3>Theme</h3>
+    <div class="theme-pick" role="radiogroup" aria-label="Theme">
+      <label><input type="radio" name="theme" value="system"> System</label>
+      <label><input type="radio" name="theme" value="light"> Light</label>
+      <label><input type="radio" name="theme" value="dark"> Dark</label>
+    </div>
+  </div>
+  <div class="drawer-section">
     <h3>Map key</h3>
     <div class="legend">
-      <span><i class="pin todo">7</i> Not stamped yet</span>
-      <span><i class="pin done">7</i> Stamped</span>
+      <span><i class="pin todo"></i> Not stamped yet</span>
+      <span><i class="pin done"></i> Stamped</span>
       <span><i class="pin extra"></i> Not in the booklet (unconfirmed)</span>
     </div>
   </div>
@@ -97,6 +104,6 @@
 
 <div class="toast" id="toast" role="status"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
-<script type="module" src="app.js?v=8"></script>
+<script type="module" src="app.js?v=9"></script>
 </body>
 </html>
